@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+   <head>
+      <title> gl </title>
+      <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1">
+      <meta http-equiv="Content-type" content="text/html; charset=UTF-8" >
+      <script type="text/javascript" src="mat.js"></script>
+      <script type="shader" id="main">
+
+         uniform    mat4 T;
+         attribute  vec3 V;
+         attribute  vec3 N;
+         varying    vec4 N_;
+         void main(){
+            gl_Position = T * vec4( V, 1 );
+            N_ = T * vec4( N, 1 ); }
+      ---
+         precision highp float;
+         varying    vec4 N_;
+         void main( void ){
+            vec3 lp = normalize( vec3(-1,1,-1) );
+            float val = max( dot( normalize( N_.xyz ), lp ), 0.0 );
+            val = pow( val, 2.3  ); // + pow( val, 50.0 )
+            gl_FragColor = vec4( vec3(1,1,1) * val, 1 );
+            //gl_FragColor.a = 1.0; 
+            }
+            
+      </script>
+      <script type="text/javascript">
+
+         con = console;
+         win = window;
+         dpr = win.devicePixelRatio;
+         doc = document;
+         canvas = doc.createElement( 'canvas' );   
+         g = canvas.getContext( 'webgl' );         
+
+         function get( url, parser, container, waiter ){
+            req = new XMLHttpRequest();
+            req.onreadystatechange = function(){
+               if( req.readyState == 4 )
+                  if( req.status != 200 ) alert( 'ERROR http get ' + url );
+                  else parser( req.responseText, container, waiter ); }
+            req.open( "GET", url, true );
+            req.send(); }
+         
+         function obj( d, o, w ){
+            d = d.split( "\n" );
+            var v = []; var vn = []; var f = [];
+            var e = []; // temp
+            for( i=0; i<d.length; i++ ){
+               d[i] = d[i].trim().split( ' ' ).filter(
+                  function( x ){ return x == '' ? false : true; } );
+               if( ['v','vn'].includes( d[i][0] ) ){
+                  e = [ parseFloat( d[i][1] ),
+                        parseFloat( d[i][2] ),
+                        parseFloat( d[i][3] ) ];
+                  if( d[i][0] == 'v' ) v.push( e ); else vn.push( e ); }
+               else if( d[i][0] == 'f' ) f.push( d[i] ); }
+            for( i=0; i<f.length; i++ ){
+               for( j=1; j<4; j++ ){
+                  e = f[i][j].split( '/' );
+                  e[0] = parseInt( e[0] )-1;
+                  e[2] = parseInt( e[2] )-1;
+                  for( k=0; k<3; k++ ){
+                     o[0].push( v[e[0]][k] );
+                     o[1].push( vn[e[2]][k] ); } } }
+            w(); }
+      
+         class shader {
+            constructor( name ){
+               var txt = doc.scripts[name].text.split('---');
+               var vsid = g.createShader( g.VERTEX_SHADER );
+               g.shaderSource( vsid, txt[0] );
+               g.compileShader( vsid );
+               if( !g.getShaderParameter( vsid, g.COMPILE_STATUS ) )
+                  alert( g.getShaderInfoLog( vsid ) );
+               var fsid = g.createShader( g.FRAGMENT_SHADER );
+               g.shaderSource( fsid, txt[1] );
+               g.compileShader( fsid );
+               if( !g.getShaderParameter( fsid, g.COMPILE_STATUS ) )
+                  alert( g.getShaderInfoLog( fsid ) );
+               this.id = g.createProgram();
+               g.attachShader( this.id, vsid );
+               g.attachShader( this.id, fsid );
+               g.linkProgram( this.id);
+               if( !g.getProgramParameter( this.id, g.LINK_STATUS ) )
+                  alert( 'error in shader program' ); }
+            bind(){
+               g.useProgram( this.id ); } }
+
+         class buffer {
+            constructor( data ){
+               this.id = g.createBuffer();
+               this.data = new Float32Array( data );
+               g.bindBuffer( g.ARRAY_BUFFER, this.id );
+               g.bufferData( g.ARRAY_BUFFER, this.data, g.STATIC_DRAW ); }
+            bind( attr ){
+               g.bindBuffer( g.ARRAY_BUFFER, this.id );
+               g.vertexAttribPointer( attr, 3, g.FLOAT, false, 0, 0 ); } }
+
+         canvas.width = 500;     
+         canvas.height = 500;
+         g.viewport( 0, 0, 500, 500 );
+         g.blendFunc( g.SRC_ALPHA, g.ONE_MINUS_SRC_ALPHA );
+         g.depthFunc( g.LESS )
+         g.clearColor( 0, 0, 0, 0 ); 
+         g.enable( g.DEPTH_TEST )
+         g.enable( g.BLEND )
+
+         ready = 0;
+
+         mainsh = new shader( 'main' );
+         mainsh.bind();
+         _T = g.getUniformLocation( mainsh.id, 'T' );
+         _V = g.getAttribLocation( mainsh.id, 'V' );
+         _N = g.getAttribLocation( mainsh.id, 'N' );
+         g.enableVertexAttribArray( _V );
+         g.enableVertexAttribArray( _N );
+
+         pot = [[],[]];
+         rot = 0;
+         
+         get( 'https://stefanyovev.com/jjj/taepot.obj', obj, pot, main );
+         
+         function main () { if( ++ready == 1 ) return;
+            
+            quad = new buffer( pot[0] );
+            quad2 = new buffer( pot[1] );
+            
+            body = doc.body;
+            body.appendChild( canvas ); 
+            body.offsetWidth;
+            
+            function draw(){
+               
+               rot += 0.2;
+               
+               T = mm( rotationZ( rot ), scaling( 1,1,1 ) );
+                       
+               g.uniformMatrix4fv( _T, false, T );
+               
+               g.clear( g.COLOR_BUFFER_BIT );
+               
+               quad.bind( _V );
+               quad2.bind( _N );
+               
+               g.drawArrays( g.TRIANGLES, 0, parseInt(pot[0].length/3) );
+                                    
+               win.requestAnimationFrame( draw ); }
+               
+            win.requestAnimationFrame( draw ); }
+
+      </script>
+   </head>
+   <body onload = " main() " ></body>
+</html>
